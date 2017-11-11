@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <iostream>
 #include <sstream>
+#include <thread>
 
 char app_dir_buffer[PATH_MAX];
 std::string APP_DIR = getcwd(app_dir_buffer, sizeof(app_dir_buffer));
@@ -135,7 +136,7 @@ void LoadBank(FMOD::Studio::System * system, std::vector<SoundDetails> * soundDe
     }
 }
 
-void LoadVO(FMOD::System * system, std::vector<SoundDetails> * soundDetails, std::vector<BankDetails> * bankDetails, const char * filename) {
+void LoadFSB(FMOD::System * system, std::vector<SoundDetails> * soundDetails, std::vector<BankDetails> * bankDetails, const char * filename) {
     printf("[LoadVO] Loading \"%s\".\n", filename);
 
     BankDetails bank;
@@ -181,11 +182,36 @@ std::vector<std::string> split(const std::string &s, char delim) {
     return elems;
 }
 
+int SetChannels(FMOD::Studio::EventInstance *instance) {
+    // Each track has a ChannelGroup. Inside a ChannelGroup are a number of other ChannelGroups
+    FMOD::ChannelGroup *topGroup;
+    FMOD::ChannelGroup *sub1, *sub2, *sub3;
+    FMOD::Channel *channel1, *channel2, *channel3;
+
+    instance->getChannelGroup(&topGroup);
+
+    topGroup->getGroup(0, &sub1);
+    topGroup->getGroup(1, &sub2);
+    topGroup->getGroup(2, &sub3);
+
+    // Channels role may vary from track to track
+    // Lead channel
+    sub1->getChannel(0, &channel1); // 0 is hardcoded, and may vary for each track.
+    channel1->setVolume(1.0);
+
+    // Drums channel
+    sub2->getChannel(0, &channel2);  // 0 is hardcoded, and may vary for each track.
+    channel2->setVolume(1.0);
+
+    // Humming channel
+    sub3->getChannel(0, &channel3);  // 0 is hardcoded, and may vary for each track.
+    channel3->setVolume(0.0);  // MUTE!
+
+    return 0;
+}
+
 int main(int argc, char ** argv)
 {
-    printf("SOUND_DIR: %s \n", SOUND_DIR.c_str());
-    printf("PLUGINS_DIR: %s \n", PLUGINS_DIR.c_str());
-
     FMOD::Studio::System* system;
     ERRCHECK(FMOD::Studio::System::create(&system));
     FMOD::System* lowLevelSystem;
@@ -218,7 +244,7 @@ int main(int argc, char ** argv)
 
     // Load .fsb
 
-    //LoadVO(lowLevelSystem, &soundDetails, &bankDetails, "VO.fsb");
+    //LoadFSB(lowLevelSystem, &soundDetails, &bankDetails, "VO.fsb");
 
     std::sort(soundDetails.begin(), soundDetails.end(), SoundDetailsComparator);
 
@@ -227,80 +253,26 @@ int main(int argc, char ** argv)
     }
 
     std::string sound_string;
-    std::cout << "[Main] Enter sound to play (nothing to quit, 0-5 to play 0-5 inclusive): ";
+    unsigned long lastEventId = soundDetails.size() - 1;
+    printf("[Main] Enter sound to play (nothing to quit, 0-%lu to play): ", lastEventId);
     std::cin >> sound_string;
 
-    std::vector<std::string> numbers = split(sound_string, '-');
-
-    int sound_id = atoi(numbers[0].c_str());
+    int sound_id = std::stoi(sound_string);
 
     const SoundDetails & sound = soundDetails[sound_id];
 
     std::cout << "[Main] Playing " << sound_id << " (" << sound.name << ")..." << std::endl;
 
     FMOD::Studio::EventInstance * instance;
+    sound.sound->setMode(FMOD_2D);
     ERRCHECK(sound.event->createInstance(&instance));
-
-
     ERRCHECK(instance->start());
 
-    FMOD_3D_ATTRIBUTES attributes = { { 0 } };
-    attributes.forward.z = 1.0f;
-    attributes.up.y = 1.0f;
-    ERRCHECK( system->setListenerAttributes(0, &attributes) );
+    system->flushCommands();
 
-    attributes.position.z = 0.0f;
-    ERRCHECK( instance->set3DAttributes(&attributes) );
+    SetChannels(instance);
 
-    FMOD_STUDIO_PLAYBACK_STATE state;
-
-    bool a = true; // Just for debugging
-    while (true) {
-        // The following configuration will play event /Music/MainTheme_MC as idle (with no drums and humming)
-
-        system->update();
-        // Each track has a ChannelGroup. Inside a ChannelGroup are a number of other ChannelGroups..
-        FMOD::ChannelGroup *topGroup;
-        int topNumChannels;  // Only good for debug purposes, e.g. printing the number of channels.
-        instance->getChannelGroup(&topGroup);
-        topGroup->getNumGroups(&topNumChannels);
-
-        if (a == true) {
-            std::cout << "topNumChannels = " << topNumChannels << std::endl;
-        }
-
-        // In Transistor's audio, the track's sub-ChannelGroups are the ones that have the actual audio channels.
-        FMOD::ChannelGroup *sub1, *sub2;
-        int numChannels;
-        int numGroups;
-
-        // Get the ChannelGroup that we want to manipulate (e.g. mute)
-        topGroup->getGroup(0, &sub1);  // may vary for each track.
-        topGroup->getGroup(2, &sub2);
-
-        // Get some info about the Sub-ChannelGroup
-        sub1->getNumChannels(&numChannels);
-        sub1->getNumGroups(&numGroups);
-
-        if (a == true) {
-            std::cout << "numChannels = " << numChannels << std::endl;
-            std::cout << "numGroups = " << numGroups << std::endl;
-            a = false;
-        }
-
-        // The audio channels don't load in instantly, so we want to wait until they exist before doing stuff to them.
-        if (numChannels > 0) {
-            // Get the audio channel that we want to manuplate.
-            FMOD::Channel *channel1, *channel2;
-            sub1->getChannel(0, &channel1);  // 0 is hardcoded, and may vary for each track.
-            channel1->setVolume(0.0);  // MUTE!
-
-            sub2->getChannel(0, &channel2);  // 0 is hardcoded, and may vary for each track.
-            channel2->setVolume(0.0);  // MUTE!
-        }
-
-        usleep(1000); // Important. FMOD_OUTPUTTYPE_WAVWRITER_NRT will play with echoes if reduce usleep()
-    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(sound.length_ms));
 
     ERRCHECK(system->release());
 
