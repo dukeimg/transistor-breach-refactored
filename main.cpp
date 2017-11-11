@@ -3,14 +3,24 @@
 int SetChannels(FMOD::Studio::EventInstance *instance) {
     // Each track has a ChannelGroup. Inside a ChannelGroup are a number of other ChannelGroups
     FMOD::ChannelGroup *topGroup;
-    FMOD::ChannelGroup *sub1, *sub2, *sub3;
-    FMOD::Channel *channel1, *channel2, *channel3;
+    FMOD::ChannelGroup *sub1, *sub2, *sub3, *sub4;
+    FMOD::Channel *channel1, *channel2, *channel3, *channel4;
 
     instance->getChannelGroup(&topGroup);
+
+    // Debug section
+
+        int topNumGroups;
+        topGroup->getNumGroups(&topNumGroups);
+
+        printf("topNumGroups = %i", topNumGroups);
+
+    // END
 
     topGroup->getGroup(0, &sub1);
     topGroup->getGroup(1, &sub2);
     topGroup->getGroup(2, &sub3);
+    topGroup->getGroup(3, &sub4);
 
     // Channels role may vary from track to track
     // Lead channel
@@ -24,6 +34,10 @@ int SetChannels(FMOD::Studio::EventInstance *instance) {
     // Humming channel
     sub3->getChannel(0, &channel3);  // 0 is hardcoded, and may vary for each track.
     channel3->setVolume(0.0);  // MUTE!
+
+    // ???
+    //sub4->getChannel(0, &channel4);  // 0 is hardcoded, and may vary for each track.
+    //channel4->setVolume(1.0);
 
     return 0;
 }
